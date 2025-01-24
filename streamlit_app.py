@@ -4,10 +4,8 @@ from anthropic import Anthropic
 from typing import List, Dict, Any, Optional
 
 class FinanziariaData:
-    """Gestisce i dati delle commissioni per le diverse finanziarie."""
-    
     def __init__(self):
-        # Inizializza il dataset con le commissioni per ogni finanziaria
+        # Dati delle commissioni per ogni finanziaria e numero di rate
         self.data = {
             'Mesi': range(1, 25),
             'Sella Appago': [
@@ -29,21 +27,18 @@ class FinanziariaData:
         self.df = pd.DataFrame(self.data)
 
     def get_commissioni(self, rate: int) -> pd.Series:
-        """Recupera le commissioni per un dato numero di rate."""
+        # Ottiene le commissioni per il numero di rate specificato
         return self.df[self.df['Mesi'] == rate].iloc[0]
 
 class FinanceCalculator:
-    """Calcola le opzioni di finanziamento disponibili."""
-    
     @staticmethod
     def calcola_opzioni(importo: float, rate: int, commissioni: pd.Series) -> List[Dict[str, Any]]:
-        """Calcola e ordina le opzioni di finanziamento per tutte le finanziarie."""
+        # Calcola le opzioni di finanziamento per tutte le finanziarie
         risultati = []
-        
         for finanziaria in ['Sella Appago', 'Cofidis PagoDIL', 'Compass HeyLight']:
             if commissioni[finanziaria] == 0:
                 continue
-                
+            
             commissione = commissioni[finanziaria] / 100
             costo_commissione = importo * commissione
             importo_netto = importo - costo_commissione
@@ -56,14 +51,11 @@ class FinanceCalculator:
                 'rata_mensile': importo / rate
             })
         
-        # Ordina per importo netto decrescente (più alto = migliore)
         return sorted(risultati, key=lambda x: x['importo_netto'], reverse=True)
 
 class AIAnalyzer:
-    """Gestisce l'analisi AI delle opzioni di finanziamento."""
-    
     def __init__(self):
-        """Inizializza il client Anthropic con le configurazioni necessarie."""
+        # Inizializzazione del client Anthropic con gestione errori
         try:
             if "anthropic_api_key" not in st.secrets:
                 raise ValueError("Chiave API Anthropic mancante nei secrets")
@@ -77,9 +69,9 @@ class AIAnalyzer:
             raise
 
     def genera_analisi(self, importo: float, rate: int, risultati: List[Dict[str, Any]]) -> str:
-        """Genera il testo del prompt per l'analisi."""
+        # Genera il prompt per l'analisi strutturata
         df_risultati = pd.DataFrame(risultati)
-        return f"""Sei un esperto consulente finanziario. Analizza queste opzioni di finanziamento:
+        return f"""Analizza queste opzioni di finanziamento come un esperto consulente finanziario:
 
 DATI FINANZIAMENTO:
 Importo: €{importo:.2f}
@@ -88,24 +80,22 @@ Rate: {rate}
 OPZIONI:
 {df_risultati.to_string()}
 
-Fornisci un'analisi strutturata seguendo questo schema:
+Fornisci un'analisi strutturata con queste sezioni:
 
-1. ANALISI COMPARATIVA
-[Per ogni finanziaria, dalla più conveniente]
+ANALISI COMPARATIVA DELLE OPZIONI
+[Descrivi ogni finanziaria separatamente]
 
-2. VALUTAZIONE ECONOMICA
-[Analisi costi/benefici]
+VALUTAZIONE ECONOMICA E OPERATIVA
+[Analisi di costi e benefici]
 
-3. RACCOMANDAZIONE FINALE
-[Consiglio motivato sulla scelta migliore]
+RACCOMANDAZIONE FINALE
+[Consiglio chiaro e motivato]
 
-4. CONSIGLI PRATICI
-[3-4 suggerimenti per l'implementazione]"""
+SUGGERIMENTI PRATICI
+[3-4 consigli numerati per l'implementazione]"""
 
-    def analizza_opzioni(self, importo: float, rate: int, risultati: List[Dict[str, Any]]) -> Optional[str]:
-        """Esegue l'analisi delle opzioni usando l'AI."""
+    def analizza_opzioni(self, importo: float, rate: int, risultati: List[Dict[str, Any]]) -> Optional[List[Dict[str, str]]]:
         try:
-            # Genera e invia il prompt
             prompt = self.genera_analisi(importo, rate, risultati)
             response = self.client.messages.create(
                 model=self.model,
@@ -114,34 +104,67 @@ Fornisci un'analisi strutturata seguendo questo schema:
                 messages=[{"role": "user", "content": prompt}]
             )
             
-            # Estrai il contenuto della risposta
-            if hasattr(response.content, 'text'):
-                return response.content.text
-            return str(response.content)
+            return self.formatta_risposta(str(response.content))
             
         except Exception as e:
             st.error(f"Errore nell'analisi AI: {str(e)}")
             return None
 
+    def formatta_risposta(self, text: str) -> List[Dict[str, str]]:
+        # Formatta la risposta AI in sezioni strutturate
+        if not text:
+            return []
+        
+        sections = []
+        current_section = ""
+        current_content = []
+        
+        # Rimuove header non necessari
+        text = text.replace("Ecco la mia analisi:", "").strip()
+        
+        for line in text.split('\n'):
+            line = line.strip()
+            if not line:
+                continue
+            
+            # Identifica le sezioni principali dal testo
+            if any(section in line.upper() for section in [
+                "ANALISI COMPARATIVA", "VALUTAZIONE ECONOMICA", 
+                "RACCOMANDAZIONE", "SUGGERIMENTI"
+            ]):
+                if current_section and current_content:
+                    sections.append({
+                        'title': current_section,
+                        'content': '\n'.join(current_content)
+                    })
+                current_section = line
+                current_content = []
+            else:
+                current_content.append(line)
+        
+        # Aggiunge l'ultima sezione
+        if current_section and current_content:
+            sections.append({
+                'title': current_section,
+                'content': '\n'.join(current_content)
+            })
+        
+        return sections
+
 class StreamlitUI:
-    """Gestisce l'interfaccia utente dell'applicazione."""
-    
     def __init__(self):
-        """Inizializza i componenti dell'applicazione."""
         self.findata = FinanziariaData()
         self.calculator = FinanceCalculator()
         self.analyzer = AIAnalyzer()
 
     def render_header(self):
-        """Visualizza l'intestazione dell'applicazione."""
         st.title("💰 Analizzatore Finanziamenti")
         st.markdown("""
-        Questo strumento analizza le opzioni di finanziamento disponibili e fornisce
-        raccomandazioni personalizzate basate su analisi AI.
+        Analisi intelligente delle opzioni di finanziamento con raccomandazioni 
+        personalizzate basate su AI.
         """)
 
     def render_inputs(self) -> tuple:
-        """Gestisce gli input dell'utente."""
         col1, col2 = st.columns(2)
         with col1:
             importo = st.number_input(
@@ -160,10 +183,8 @@ class StreamlitUI:
         return importo, rate
 
     def render_results(self, importo: float, rate: int, risultati: List[Dict[str, Any]]):
-        """Visualizza i risultati dell'analisi."""
         st.header("Riepilogo Opzioni")
         
-        # Mostra il riepilogo del finanziamento
         st.info(f"""
         💰 Dettagli Finanziamento:
         - Importo totale: €{importo:.2f}
@@ -171,7 +192,6 @@ class StreamlitUI:
         - Rata mensile: €{risultati[0]['rata_mensile']:.2f}
         """)
         
-        # Mostra le opzioni ordinate
         for i, opzione in enumerate(risultati, 1):
             container = st.success if i == 1 else st.warning if i == 2 else st.error
             emoji = "🥇" if i == 1 else "🥈" if i == 2 else "🥉"
@@ -183,45 +203,58 @@ class StreamlitUI:
             - Importo netto: €{opzione['importo_netto']:.2f}
             """)
 
-    def render_ai_analysis(self, analysis: str):
-        """Visualizza l'analisi AI in modo strutturato."""
-        if not analysis:
+    def render_ai_analysis(self, sections: List[Dict[str, str]]):
+        if not sections:
             st.error("Non è stato possibile generare l'analisi AI. Riprova più tardi.")
             return
 
         st.header("Analisi Dettagliata")
-        st.markdown(analysis)
+        
+        for section in sections:
+            with st.expander(section['title'], expanded=True):
+                content = section['content']
+                
+                # Formattazione speciale per i suggerimenti
+                if "SUGGERIMENTI" in section['title'].upper():
+                    for line in content.split('\n'):
+                        if line.strip():
+                            st.markdown(f"• {line.strip()}")
+                            st.write("")
+                else:
+                    # Formattazione per le altre sezioni
+                    for paragraph in content.split('\n'):
+                        if paragraph.strip():
+                            if paragraph.startswith('-'):
+                                st.markdown(f"• {paragraph[1:].strip()}")
+                            else:
+                                st.write(paragraph.strip())
+                            st.write("")
 
     def run(self):
-        """Esegue l'applicazione completa."""
         try:
             self.render_header()
             importo, rate = self.render_inputs()
             
             if st.button("Analizza Opzioni"):
                 with st.spinner("Elaborazione in corso..."):
-                    # Calcola le opzioni
                     commissioni = self.findata.get_commissioni(rate)
                     risultati = self.calculator.calcola_opzioni(importo, rate, commissioni)
                     
-                    # Visualizza i risultati
                     self.render_results(importo, rate, risultati)
                     
-                    # Genera e visualizza l'analisi AI
                     analysis = self.analyzer.analizza_opzioni(importo, rate, risultati)
-                    self.render_ai_analysis(analysis)
+                    if analysis:
+                        self.render_ai_analysis(analysis)
                     
         except Exception as e:
             st.error(f"Si è verificato un errore: {str(e)}")
 
 if __name__ == "__main__":
-    # Configura la pagina Streamlit
     st.set_page_config(
         page_title="Analizzatore Finanziamenti",
         page_icon="💰",
         layout="wide"
     )
     
-    # Avvia l'applicazione
     app = StreamlitUI()
     app.run()
