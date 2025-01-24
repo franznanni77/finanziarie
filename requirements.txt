@@ -1,1 +1,14 @@
+# Core dependencies
 streamlit
+pandas==2.2.0
+numpy==1.26.3
+
+# Formatting and data handling
+python-dateutil==2.8.2
+pytz==2024.1
+
+# Streamlit dependencies
+altair==5.2.0
+protobuf==4.25.2
+click==8.1.7
+pillow==10.2.0
