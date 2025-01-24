@@ -1,22 +1,17 @@
 """
 Applicazione Streamlit per l'analisi intelligente delle opzioni di finanziamento.
-Integra dati finanziari con analisi AI di Anthropic Claude per fornire 
-raccomandazioni personalizzate sulle scelte di finanziamento.
+Include gestione degli errori migliorata e formattazione robusta della risposta AI.
 """
 
 import streamlit as st
 import pandas as pd
 from anthropic import Anthropic
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 class FinanziariaData:
-    """
-    Classe per la gestione dei dati delle finanziarie e delle loro commissioni.
-    Contiene i dati di base e i metodi per manipolarli.
-    """
+    """Gestisce i dati delle finanziarie e le loro commissioni."""
     
     def __init__(self):
-        """Inizializza i dati delle commissioni per tutte le finanziarie."""
         self.data = {
             'Mesi': range(1, 25),
             'Sella Appago': [
@@ -38,21 +33,13 @@ class FinanziariaData:
         self.df = pd.DataFrame(self.data)
 
     def get_commissioni(self, rate: int) -> pd.Series:
-        """Recupera le commissioni per un determinato numero di rate."""
         return self.df[self.df['Mesi'] == rate].iloc[0]
 
 class FinanceCalculator:
-    """
-    Classe per i calcoli finanziari relativi alle diverse opzioni di finanziamento.
-    Gestisce il calcolo delle rate, commissioni e importi netti.
-    """
+    """Calcola le opzioni di finanziamento disponibili."""
     
     @staticmethod
     def calcola_opzioni(importo: float, rate: int, commissioni: pd.Series) -> List[Dict[str, Any]]:
-        """
-        Calcola le opzioni di finanziamento disponibili per tutte le finanziarie.
-        Ordina i risultati per convenienza (importo netto decrescente).
-        """
         risultati = []
         
         for finanziaria in ['Sella Appago', 'Cofidis PagoDIL', 'Compass HeyLight']:
@@ -74,95 +61,85 @@ class FinanceCalculator:
         return sorted(risultati, key=lambda x: x['importo_netto'], reverse=True)
 
 class AIAnalyzer:
-    """
-    Classe per l'analisi intelligente delle opzioni di finanziamento usando Anthropic Claude.
-    Gestisce la generazione del prompt e l'interazione con l'API.
-    """
+    """Gestisce l'analisi AI delle opzioni di finanziamento."""
     
     def __init__(self):
-        """Inizializza il client Anthropic con le configurazioni necessarie."""
-        if "anthropic_api_key" not in st.secrets:
-            raise ValueError("Chiave API Anthropic mancante nei secrets")
-        
-        self.client = Anthropic(api_key=st.secrets["anthropic_api_key"])
-        self.model = "claude-3-5-sonnet-20241022"
-        self.max_tokens = 1024
-        self.temperature = 0.75
+        try:
+            if "anthropic_api_key" not in st.secrets:
+                raise ValueError("Chiave API Anthropic mancante nei secrets")
+            
+            self.client = Anthropic(api_key=st.secrets["anthropic_api_key"])
+            self.model = "claude-3-5-sonnet-20241022"
+            self.max_tokens = 1024
+            self.temperature = 0.75
+        except Exception as e:
+            st.error(f"Errore di inizializzazione: {str(e)}")
+            raise
 
     def _genera_prompt(self, importo: float, rate: int, risultati: List[Dict[str, Any]]) -> str:
-        """
-        Genera il prompt strutturato per l'analisi delle opzioni.
-        Include istruzioni dettagliate per ottenere un'analisi completa e ben formattata.
-        """
-        return f"""Analizza le seguenti opzioni di finanziamento:
-Importo: €{importo:.2f}
-Rate: {rate}
+        return """Analizza le seguenti opzioni di finanziamento:
+        
+Dettagli:
+- Importo: €{importo:.2f}
+- Rate: {rate}
 
-Dettagli delle opzioni:
+Opzioni disponibili:
 {pd.DataFrame(risultati).to_string()}
 
-Fornisci un'analisi strutturata seguendo questo formato:
+Fornisci un'analisi strutturata usando questa formattazione:
 
-# Confronto delle Opzioni
+ANALISI COMPARATIVA DELLE FINANZIARIE
 
-Analizza ogni finanziaria, evidenziando:
-- Commissione e costo effettivo
-- Punti di forza specifici
-- Eventuali limitazioni
+[Analisi dettagliata di ogni opzione, dalla più conveniente alla meno conveniente]
 
-# Analisi Economica
+VALUTAZIONE ECONOMICA
 
-- Differenze di costo tra le opzioni
-- Impatto sul budget aziendale
-- Considerazioni sulla liquidità
+[Analisi dei costi e benefici]
 
-# Raccomandazione
+RACCOMANDAZIONE FINALE
 
-Suggerisci l'opzione migliore considerando:
-- Rapporto costo/beneficio
-- Flessibilità operativa
-- Gestione del rischio
+[Suggerimento chiaro sulla scelta migliore]
 
-Usa un linguaggio chiaro e diretto, evitando gergo tecnico non necessario."""
+CONSIGLI PRATICI
 
-    def analizza_opzioni(self, importo: float, rate: int, risultati: List[Dict[str, Any]]) -> str:
-        """Esegue l'analisi delle opzioni usando l'AI e restituisce il risultato formattato."""
-        prompt = self._genera_prompt(importo, rate, risultati)
-        
+[3-4 suggerimenti per l'implementazione]"""
+
+    def analizza_opzioni(self, importo: float, rate: int, risultati: List[Dict[str, Any]]) -> Optional[str]:
         try:
+            prompt = self._genera_prompt(importo, rate, risultati)
+            
             response = self.client.messages.create(
                 model=self.model,
                 max_tokens=self.max_tokens,
                 temperature=self.temperature,
                 messages=[{"role": "user", "content": prompt}]
             )
+            
+            if not response or not response.content:
+                raise ValueError("Risposta AI non valida")
+                
             return response.content
+            
         except Exception as e:
             st.error(f"Errore nell'analisi AI: {str(e)}")
             return None
 
 class StreamlitUI:
-    """
-    Classe per la gestione dell'interfaccia utente Streamlit.
-    Coordina la presentazione dei dati e l'interazione con l'utente.
-    """
+    """Gestisce l'interfaccia utente dell'applicazione."""
     
     def __init__(self):
-        """Inizializza i componenti necessari per l'UI."""
         self.findata = FinanziariaData()
         self.calculator = FinanceCalculator()
         self.analyzer = AIAnalyzer()
 
     def render_header(self):
-        """Renderizza l'intestazione dell'applicazione."""
         st.title("Analizzatore Intelligente di Finanziamenti")
         st.markdown("""
-        Questo strumento analizza le diverse opzioni di finanziamento disponibili
-        e fornisce raccomandazioni personalizzate basate sui dati e sull'analisi AI.
+        Analizza le opzioni di finanziamento disponibili e ricevi raccomandazioni 
+        personalizzate basate su analisi AI.
         """)
 
     def render_inputs(self) -> tuple:
-        """Renderizza e gestisce gli input dell'utente."""
         col1, col2 = st.columns(2)
         with col1:
             importo = st.number_input(
@@ -181,29 +158,19 @@ class StreamlitUI:
         return importo, rate
 
     def render_results(self, importo: float, rate: int, risultati: List[Dict[str, Any]]):
-        """Renderizza i risultati dell'analisi in modo strutturato e leggibile."""
         st.header("Riepilogo Opzioni")
         
-        # Info base del finanziamento
         st.info(f"""
-        💰 Dettagli Finanziamento
+        💰 Dettagli Finanziamento:
         - Importo richiesto: €{importo:.2f}
         - Rate mensili: {rate}
         - Rata cliente: €{risultati[0]['rata_mensile']:.2f}
         """)
         
-        # Mostra le opzioni ordinate
         for i, opzione in enumerate(risultati, 1):
-            if i == 1:
-                container = st.success
-                emoji = "🥇"
-            elif i == 2:
-                container = st.warning
-                emoji = "🥈"
-            else:
-                container = st.error
-                emoji = "🥉"
-                
+            container = st.success if i == 1 else st.warning if i == 2 else st.error
+            emoji = "🥇" if i == 1 else "🥈" if i == 2 else "🥉"
+            
             container(f"""
             {emoji} {opzione['finanziaria']}
             - Commissione: {opzione['commissione_percentuale']:.2f}%
@@ -211,44 +178,79 @@ class StreamlitUI:
             - Importo netto: €{opzione['importo_netto']:.2f}
             """)
 
-    def render_ai_analysis(self, analysis: str):
-        """Renderizza l'analisi AI in modo strutturato e leggibile."""
-        if not analysis:
-            return
+    def format_ai_response(self, text: str) -> str:
+        """Formatta la risposta AI per una migliore leggibilità."""
+        if not text:
+            return ""
+        
+        # Rimuove spazi extra e formatta le sezioni
+        sections = []
+        current_section = []
+        
+        for line in text.split('\n'):
+            line = line.strip()
+            if line.isupper() and len(line) > 10:  # Probabilmente un titolo di sezione
+                if current_section:
+                    sections.append('\n'.join(current_section))
+                current_section = [f"## {line}"]
+            elif line:
+                current_section.append(line)
+                
+        if current_section:
+            sections.append('\n'.join(current_section))
             
+        return '\n\n'.join(sections)
+
+    def render_ai_analysis(self, analysis: Optional[str]):
+        """Visualizza l'analisi AI con gestione degli errori migliorata."""
+        if not analysis:
+            st.error("Non è stato possibile generare l'analisi AI. Riprova più tardi.")
+            return
+        
         st.header("Analisi Dettagliata AI")
         
-        # Divide l'analisi in sezioni basate sui titoli '#'
-        sections = analysis.split('#')
+        # Formatta e visualizza l'analisi
+        formatted_analysis = self.format_ai_response(analysis)
+        sections = formatted_analysis.split('##')
+        
         for section in sections:
             if not section.strip():
                 continue
-                
-            # Estrae e formatta il titolo e il contenuto
+            
             lines = section.strip().split('\n')
             title = lines[0].strip()
             content = '\n'.join(lines[1:]).strip()
             
-            # Visualizza la sezione formattata
-            st.subheader(title)
-            st.write(content)
-            st.markdown("---")
+            if title and content:
+                st.subheader(title)
+                st.write(content)
+                st.markdown("---")
 
     def run(self):
-        """Esegue l'applicazione completa."""
-        self.render_header()
-        importo, rate = self.render_inputs()
-        
-        if st.button("Analizza Opzioni"):
-            commissioni = self.findata.get_commissioni(rate)
-            risultati = self.calculator.calcola_opzioni(importo, rate, commissioni)
+        """Esegue l'applicazione con gestione degli errori migliorata."""
+        try:
+            self.render_header()
+            importo, rate = self.render_inputs()
             
-            self.render_results(importo, rate, risultati)
-            
-            with st.spinner("Elaborazione analisi dettagliata..."):
-                analysis = self.analyzer.analizza_opzioni(importo, rate, risultati)
-                self.render_ai_analysis(analysis)
+            if st.button("Analizza Opzioni"):
+                with st.spinner("Elaborazione in corso..."):
+                    commissioni = self.findata.get_commissioni(rate)
+                    risultati = self.calculator.calcola_opzioni(importo, rate, commissioni)
+                    
+                    self.render_results(importo, rate, risultati)
+                    
+                    analysis = self.analyzer.analizza_opzioni(importo, rate, risultati)
+                    self.render_ai_analysis(analysis)
+                    
+        except Exception as e:
+            st.error(f"Si è verificato un errore: {str(e)}")
 
 if __name__ == "__main__":
+    st.set_page_config(
+        page_title="Analizzatore Finanziamenti",
+        page_icon="💰",
+        layout="wide"
+    )
+    
     app = StreamlitUI()
     app.run()
