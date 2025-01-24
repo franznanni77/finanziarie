@@ -18,77 +18,82 @@ data = {
 
 df = pd.DataFrame(data)
 
-def calcola_migliore_finanziaria(importo, rate):
+def calcola_opzioni_finanziamento(importo, rate):
     """
-    Calcola la migliore opzione di finanziamento basata sull'importo e il numero di rate
+    Calcola e ordina tutte le opzioni di finanziamento disponibili
     """
     # Ottieni le commissioni per il numero di rate selezionato
     commissioni = df[df['Mesi'] == rate].iloc[0]
     
-    risultati = {}
+    risultati = []
     for finanziaria in ['Sella Appago', 'Cofidis PagoDIL', 'Compass HeyLight']:
         if commissioni[finanziaria] == 0:
             continue
             
         commissione = commissioni[finanziaria] / 100
         costo_commissione = importo * commissione
-        costo_totale = importo - costo_commissione
+        importo_netto = importo - costo_commissione
         
-        risultati[finanziaria] = {
+        risultati.append({
+            'finanziaria': finanziaria,
             'commissione_percentuale': commissioni[finanziaria],
             'costo_commissione': costo_commissione,
-            'importo_netto': costo_totale
-        }
+            'importo_netto': importo_netto
+        })
     
-    # Trova la finanziaria con il costo più basso (importo netto più alto)
-    migliore_finanziaria = max(risultati.items(), key=lambda x: x[1]['importo_netto'])
-    return migliore_finanziaria, risultati
+    # Ordina i risultati per importo netto decrescente (più alto = migliore)
+    return sorted(risultati, key=lambda x: x['importo_netto'], reverse=True)
 
 # Configurazione della pagina Streamlit
 st.title('Calcolatore Finanziamenti')
 
 # Input utente
-importo = st.number_input('Inserisci l\'importo da finanziare (€)', min_value=1.0, value=1000.0)
-rate = st.number_input('Inserisci il numero di rate', min_value=1, max_value=24, value=12)
+col1, col2 = st.columns(2)
+with col1:
+    importo = st.number_input('Inserisci l\'importo da finanziare (€)', min_value=1.0, value=1000.0)
+with col2:
+    rate = st.number_input('Inserisci il numero di rate', min_value=1, max_value=24, value=12)
 
 if st.button('Calcola'):
     # Calcola la rata mensile per il cliente (senza interessi)
     rata_mensile = importo / rate
     
-    # Trova la migliore opzione di finanziamento
-    migliore, tutti_risultati = calcola_migliore_finanziaria(importo, rate)
+    # Ottieni le opzioni ordinate
+    opzioni_ordinate = calcola_opzioni_finanziamento(importo, rate)
     
     # Mostra i risultati
     st.header('Risultati')
     
     # Informazioni per il cliente
-    st.subheader('Informazioni per il cliente')
-    st.write(f'Rata mensile: €{rata_mensile:.2f}')
-    st.write(f'Numero rate: {rate}')
-    st.write(f'Importo totale: €{importo:.2f}')
+    st.info(f"""
+    📊 Dettagli del finanziamento richiesto:
+    - Importo totale: €{importo:.2f}
+    - Rata mensile per il cliente: €{rata_mensile:.2f}
+    - Numero rate: {rate}
+    """)
     
-    # Informazioni per l'azienda
-    st.subheader('Analisi delle opzioni di finanziamento')
+    # Mostra le opzioni in ordine
+    for i, opzione in enumerate(opzioni_ordinate, 1):
+        if i == 1:
+            container = st.success  # Verde per la migliore opzione
+        elif i == len(opzioni_ordinate):
+            container = st.error    # Rosso per la peggiore opzione
+        else:
+            container = st.warning  # Giallo per le opzioni intermedie
+            
+        container(f"""
+        💰 Opzione {i}: {opzione['finanziaria']}
+        - Commissione: {opzione['commissione_percentuale']:.2f}%
+        - Costo commissione: €{opzione['costo_commissione']:.2f}
+        - Importo netto per l'azienda: €{opzione['importo_netto']:.2f}
+        """)
     
-    # Crea una tabella comparativa
-    risultati_df = pd.DataFrame.from_dict(
-        {k: {
-            'Commissione (%)': v['commissione_percentuale'],
-            'Costo commissione (€)': v['costo_commissione'],
-            'Importo netto (€)': v['importo_netto']
-        } for k, v in tutti_risultati.items()
-    }).T
-    
-    st.dataframe(risultati_df.style.format({
-        'Commissione (%)': '{:.2f}%',
-        'Costo commissione (€)': '€{:.2f}',
-        'Importo netto (€)': '€{:.2f}'
+    # Mostra tabella comparativa dettagliata
+    st.subheader('Tabella comparativa dettagliata')
+    df_confronto = pd.DataFrame(opzioni_ordinate)
+    df_confronto.set_index('finanziaria', inplace=True)
+    st.dataframe(df_confronto.style.format({
+        'commissione_percentuale': '{:.2f}%',
+        'costo_commissione': '€{:.2f}',
+        'importo_netto': '€{:.2f}'
     }))
-    
-    # Evidenzia la migliore opzione
-    st.success(f'''
-    Migliore opzione: {migliore[0]}
-    - Commissione: {migliore[1]["commissione_percentuale"]:.2f}%
-    - Costo commissione: €{migliore[1]["costo_commissione"]:.2f}
-    - Importo netto: €{migliore[1]["importo_netto"]:.2f}
-    ''')
